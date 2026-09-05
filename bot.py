@@ -113,8 +113,30 @@ async def cmd_clear_caption(message: Message):
 
 # ---------- Kanal postlariga avtomatik izoh qo'shish ----------
 
-@dp.channel_post(F.video | F.photo)
+ALBUM_DEBOUNCE = 1.5  # soniya — albomning barcha elementlari kelishini kutamiz
+
+album_messages: dict[str, list[Message]] = {}
+album_tasks: dict[str, asyncio.Task] = {}
+
+
+async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_text: str) -> None:
+    old = base_html.strip()
+    new_caption = f"{old}\n\n{caption_text}" if old else caption_text
+    try:
+        await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=new_caption)
+    except TelegramBadRequest as e:
+        # Ehtimol umumiy uzunlik 1024 belgidan oshib ketgan yoki boshqa xatolik —
+        # shunda faqat o'zimizning izohimizni qo'yib ko'ramiz (eski izoh o'rniga)
+        logging.error("Caption tahrirlashda xatolik (birinchi urinish): %s", e)
+        try:
+            await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=caption_text)
+        except TelegramBadRequest as e2:
+            logging.error("Caption tahrirlashda xatolik (ikkinchi urinish): %s", e2)
+
+
+@dp.channel_post(~F.media_group_id, F.video | F.photo)
 async def handle_channel_post(message: Message):
+    """Yakka (albom bo'lmagan) video/rasm postlari."""
     if CHANNEL_ID and message.chat.id != CHANNEL_ID:
         return  # bu bizning kanalimiz emas — tegilmaymiz
 
@@ -122,28 +144,40 @@ async def handle_channel_post(message: Message):
     if not caption_text:
         return  # izoh sozlanmagan — hech narsa qilmaymiz
 
-    # Videoning o'zidagi izoh formatini (qalin, emoji va h.k.) saqlab qolamiz
-    old_caption_html = (message.html_text or "").strip()
-    new_caption = f"{old_caption_html}\n\n{caption_text}" if old_caption_html else caption_text
+    # Postning o'zidagi izoh formatini (qalin, emoji va h.k.) saqlab qolamiz
+    await apply_caption(message.chat.id, message.message_id, message.html_text or "", caption_text)
 
-    try:
-        await bot.edit_message_caption(
-            chat_id=message.chat.id,
-            message_id=message.message_id,
-            caption=new_caption,
-        )
-    except TelegramBadRequest as e:
-        # Ehtimol umumiy uzunlik 1024 belgidan oshib ketgan — shunda faqat
-        # o'zimizning izohimizni qo'yib ko'ramiz (eski izoh o'rniga)
-        logging.error("Caption tahrirlashda xatolik (birinchi urinish): %s", e)
-        try:
-            await bot.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-                caption=caption_text,
-            )
-        except TelegramBadRequest as e2:
-            logging.error("Caption tahrirlashda xatolik (ikkinchi urinish): %s", e2)
+
+@dp.channel_post(F.media_group_id, F.video | F.photo)
+async def handle_album_item(message: Message):
+    """Albom (bir vaqtda yuborilgan bir nechta video/rasm) postlari."""
+    if CHANNEL_ID and message.chat.id != CHANNEL_ID:
+        return
+
+    group_id = message.media_group_id
+    album_messages.setdefault(group_id, []).append(message)
+
+    # Yangi element kelsa, eski taymerni bekor qilib, yana kutamiz (debounce)
+    if group_id in album_tasks:
+        album_tasks[group_id].cancel()
+    album_tasks[group_id] = asyncio.create_task(process_album(group_id))
+
+
+async def process_album(group_id: str) -> None:
+    await asyncio.sleep(ALBUM_DEBOUNCE)
+    messages = album_messages.pop(group_id, [])
+    album_tasks.pop(group_id, None)
+    if not messages:
+        return
+
+    caption_text = db.get_caption()
+    if not caption_text:
+        return
+
+    # Telegram butun albom uchun faqat BITTA elementning (birinchisining)
+    # izohini ko'rsatadi — shu sabab faqat o'shanga yozamiz
+    first = min(messages, key=lambda m: m.message_id)
+    await apply_caption(first.chat.id, first.message_id, first.html_text or "", caption_text)
 
 
 async def main():
