@@ -73,7 +73,7 @@ async def process_new_caption(message: Message, state: FSMContext):
         return
 
     plain_text = message.text or message.caption or ""
-    formatted_caption = message.html_text or message.html_caption or plain_text
+    formatted_caption = message.html_text or plain_text
 
     if not plain_text.strip():
         await message.answer("Matn topilmadi. Qayta yuboring yoki /cancel bilan bekor qiling.")
@@ -123,7 +123,7 @@ async def handle_channel_post(message: Message):
         return  # izoh sozlanmagan — hech narsa qilmaymiz
 
     # Videoning o'zidagi izoh formatini (qalin, emoji va h.k.) saqlab qolamiz
-    old_caption_html = (message.html_caption or "").strip()
+    old_caption_html = (message.html_text or "").strip()
     new_caption = f"{old_caption_html}\n\n{caption_text}" if old_caption_html else caption_text
 
     try:
