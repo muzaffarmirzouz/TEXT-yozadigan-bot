@@ -49,8 +49,10 @@ python bot.py
 
 Botning shaxsiy chatiga o'ting (admin sifatida) va:
 
-- `/setcaption Obuna bo'ling: @kanal_nomi` — avtomatik izohni belgilaydi
-- `/caption` — joriy izohni ko'rsatadi
+- `/setcaption` — bot izoh matnini so'raydi; keyingi xabaringizni (qalin/kursiv
+  shrift, havolalar, premium/custom emojilar bilan) yuborsangiz, aynan o'sha
+  ko'rinishda saqlanadi. Bekor qilish uchun `/cancel`.
+- `/caption` — joriy izohni (formatlash bilan) ko'rsatadi
 - `/clearcaption` — avtomatik izoh qo'shishni to'xtatadi
 
 Shundan keyin kanalga tashlangan **har bir yangi video yoki rasmga** bu matn

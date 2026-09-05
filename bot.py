@@ -5,6 +5,9 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message
 
 import db
@@ -13,9 +16,13 @@ from config import ADMIN_IDS, BOT_TOKEN, CHANNEL_ID
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 MAX_CAPTION_LEN = 1024  # Telegramning video/rasm caption limiti
+
+
+class SetCaption(StatesGroup):
+    waiting_for_text = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -32,7 +39,7 @@ async def cmd_start(message: Message):
     await message.answer(
         "Salom! Men kanalga tashlangan video/rasmlarga avtomatik izoh qo'shib boraman.\n\n"
         "Buyruqlar:\n"
-        "/setcaption &lt;matn&gt; — avtomatik izohni belgilash\n"
+        "/setcaption — avtomatik izohni belgilash (formatlash va emojilar bilan)\n"
         "/caption — joriy izohni ko'rish\n"
         "/clearcaption — avtomatik izoh qo'shishni to'xtatish\n\n"
         "Eslatma: bot kanalda admin bo'lishi va unda "
@@ -41,23 +48,47 @@ async def cmd_start(message: Message):
 
 
 @dp.message(Command("setcaption"), F.chat.type == "private")
-async def cmd_set_caption(message: Message):
+async def cmd_set_caption(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
+    await state.set_state(SetCaption.waiting_for_text)
+    await message.answer(
+        "Endi izoh matnini yuboring — qalin/kursiv shrift, havolalar va premium "
+        "(custom) emojilar bo'lsa, ular xuddi shu ko'rinishda saqlanadi.\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+
+
+@dp.message(Command("cancel"), F.chat.type == "private")
+async def cmd_cancel(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    await message.answer("Bekor qilindi.")
+
+
+@dp.message(SetCaption.waiting_for_text, F.chat.type == "private")
+async def process_new_caption(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+
+    plain_text = message.text or message.caption or ""
+    formatted_caption = message.html_text or message.html_caption or plain_text
+
+    if not plain_text.strip():
+        await message.answer("Matn topilmadi. Qayta yuboring yoki /cancel bilan bekor qiling.")
+        return
+
+    if len(plain_text) > MAX_CAPTION_LEN:
         await message.answer(
-            "Matnni ham yozing. Masalan:\n/setcaption Obuna bo'lish uchun: @kanal_nomi"
+            f"Matn juda uzun ({len(plain_text)} belgi). Maksimum {MAX_CAPTION_LEN} belgi bo'lishi kerak."
         )
         return
-    caption = parts[1].strip()
-    if len(caption) > MAX_CAPTION_LEN:
-        await message.answer(
-            f"Matn juda uzun ({len(caption)} belgi). Maksimum {MAX_CAPTION_LEN} belgi bo'lishi kerak."
-        )
-        return
-    db.set_caption(caption)
-    await message.answer(f"✅ Izoh saqlandi. Endi barcha yangi video/rasmlarga shu qo'shiladi:\n\n{caption}")
+
+    db.set_caption(formatted_caption)
+    await state.clear()
+    await message.answer("✅ Izoh saqlandi. Namuna qanday ko'rinishda chiqishini pastda ko'rasiz 👇")
+    await message.answer(formatted_caption)
 
 
 @dp.message(Command("caption"), F.chat.type == "private")
@@ -66,7 +97,8 @@ async def cmd_get_caption(message: Message):
         return
     caption = db.get_caption()
     if caption:
-        await message.answer(f"Joriy izoh:\n\n{caption}")
+        await message.answer("Joriy izoh:")
+        await message.answer(caption)
     else:
         await message.answer("Hozircha izoh belgilanmagan. /setcaption orqali qo'shing.")
 
@@ -90,11 +122,9 @@ async def handle_channel_post(message: Message):
     if not caption_text:
         return  # izoh sozlanmagan — hech narsa qilmaymiz
 
-    old_caption = (message.caption or "").strip()
-    new_caption = f"{old_caption}\n\n{caption_text}" if old_caption else caption_text
-
-    if len(new_caption) > MAX_CAPTION_LEN:
-        new_caption = new_caption[: MAX_CAPTION_LEN - 3] + "..."
+    # Videoning o'zidagi izoh formatini (qalin, emoji va h.k.) saqlab qolamiz
+    old_caption_html = (message.html_caption or "").strip()
+    new_caption = f"{old_caption_html}\n\n{caption_text}" if old_caption_html else caption_text
 
     try:
         await bot.edit_message_caption(
@@ -103,7 +133,17 @@ async def handle_channel_post(message: Message):
             caption=new_caption,
         )
     except TelegramBadRequest as e:
-        logging.error("Caption tahrirlashda xatolik: %s", e)
+        # Ehtimol umumiy uzunlik 1024 belgidan oshib ketgan — shunda faqat
+        # o'zimizning izohimizni qo'yib ko'ramiz (eski izoh o'rniga)
+        logging.error("Caption tahrirlashda xatolik (birinchi urinish): %s", e)
+        try:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                caption=caption_text,
+            )
+        except TelegramBadRequest as e2:
+            logging.error("Caption tahrirlashda xatolik (ikkinchi urinish): %s", e2)
 
 
 async def main():
