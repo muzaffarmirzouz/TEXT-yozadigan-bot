@@ -1,10 +1,16 @@
+import os
 import sqlite3
 from typing import List, Optional, Tuple
 
-DB_PATH = "captions.db"
+# Railway'da bu Volume mount qilingan doimiy papkaga ko'rsatilishi kerak
+# (masalan /data/captions.db), aks holda har deploy'da ma'lumot o'chib ketadi.
+DB_PATH = os.getenv("DB_PATH", "captions.db")
 
 
 def init_db() -> None:
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(

@@ -275,6 +275,10 @@ async def handle_channel_post(message: Message):
 @dp.channel_post(F.media_group_id, F.video | F.photo)
 async def handle_album_item(message: Message):
     """Albom (bir vaqtda yuborilgan bir nechta video/rasm) postlari."""
+    logging.info(
+        "Albom elementi keldi: chat_id=%s, title=%s, media_group_id=%s",
+        message.chat.id, message.chat.title, message.media_group_id,
+    )
     group_id = message.media_group_id
     album_messages.setdefault(group_id, []).append(message)
 
@@ -300,6 +304,15 @@ async def process_album(group_id: str) -> None:
     # Telegram butun albom uchun faqat BITTA elementning (birinchisining)
     # izohini ko'rsatadi — shu sabab faqat o'shanga yozamiz
     await apply_caption(first.chat.id, first.message_id, first.html_text or "", caption_text)
+
+
+@dp.channel_post()
+async def catch_all_channel_post(message: Message):
+    """Yuqoridagi ikkala handler ham ushlamagan postlar — nima kelganini ko'rish uchun."""
+    logging.info(
+        "Boshqa turdagi post keldi: chat_id=%s, title=%s, content_type=%s, media_group_id=%s",
+        message.chat.id, message.chat.title, message.content_type, message.media_group_id,
+    )
 
 
 async def main():

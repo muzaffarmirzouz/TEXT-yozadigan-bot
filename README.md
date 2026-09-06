@@ -26,7 +26,31 @@ cp .env.example .env
 python bot.py
 ```
 
-## 4. GitHub + Railway'ga joylash
+## 4. Railway'da doimiy xotira (Volume) — MUHIM
+
+Railway konteyneri har deploy'da yangidan yaratiladi, shu sabab oddiy fayllar
+(bizning `captions.db`imiz — barcha kanallar va izohlar shu yerda) **har
+push'dan keyin o'chib ketadi**, agar Volume ulanmagan bo'lsa.
+
+1. Railway loyihangizda servisni oching → **Settings → Volumes → New Volume**.
+2. Mount path sifatida `/data` yozing (istalgan nom, faqat keyingi qadamda
+   moslashtiring).
+3. **Variables**'ga yangi o'zgaruvchi qo'shing: `DB_PATH=/data/captions.db`.
+4. Qayta deploy qiling.
+
+Shundan keyin ma'lumotlar (kanallar ro'yxati, har birining izohi) deploy'lar
+orasida saqlanib qoladi — endi push qilganingizda kanallarni qayta
+ro'yxatdan o'tkazish yoki izohlarni qayta yozish shart bo'lmaydi.
+
+**Eslatma:** agar Volume'ni hozir qo'shsangiz, oldingi ma'lumotlar
+(sozlagan kanallar/izohlar) allaqachon yo'qolgan bo'lishi mumkin — Volume
+ulangandan keyin ikkala kanalni ham bittа marta qayta ro'yxatdan o'tkazish
+kifoya: har birida botni admin huquqidan olib tashlab, qayta admin qilib
+qo'shsangiz (yoki "Xabarlarni tahrirlash" huquqini o'chirib-yoqsangiz), bot
+uni qayta avtomatik ro'yxatga oladi, so'ng `/setcaption` bilan matnlarni
+qayta kiritasiz — bundan keyin bu takrorlanmaydi.
+
+## 5. GitHub + Railway'ga joylash
 
 1. Ushbu papkani GitHub'dagi yangi repo'ga yuklang.
 2. Railway'da **New Project → Deploy from GitHub repo** orqali shu repo'ni ulang.
@@ -38,7 +62,7 @@ python bot.py
      o'rnatish uchun bu shart emas.
 4. Railway `Procfile`ni o'zi tanib, botni `worker` sifatida ishga tushiradi.
 
-## 5. Kanal qo'shish
+## 6. Kanal qo'shish
 
 1. Kanalingizga o'ting → **Administratorlar** → **Admin qo'shish** → botni tanlang.
 2. Berilgan huquqlar orasida **"Xabarlarni tahrirlash" (Edit Messages)** ni
@@ -47,7 +71,7 @@ python bot.py
    yuboradi. Buni istalgancha kanal uchun takrorlashingiz mumkin — kodga yoki
    Railway sozlamalariga tegishning hojati yo'q.
 
-## 6. Foydalanish
+## 7. Foydalanish
 
 Botning shaxsiy chatiga o'ting (admin sifatida) va:
 
