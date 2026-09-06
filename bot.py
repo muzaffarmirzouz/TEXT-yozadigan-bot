@@ -8,10 +8,16 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    ChatMemberUpdated,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import db
-from config import ADMIN_IDS, BOT_TOKEN, CHANNEL_ID
+from config import ADMIN_IDS, BOT_TOKEN, LEGACY_CHANNEL_ID
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +25,10 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
 
 MAX_CAPTION_LEN = 1024  # Telegramning video/rasm caption limiti
+ALBUM_DEBOUNCE = 1.5  # soniya — albomning barcha elementlari kelishini kutamiz
+
+album_messages: dict[str, list[Message]] = {}
+album_tasks: dict[str, asyncio.Task] = {}
 
 
 class SetCaption(StatesGroup):
@@ -29,6 +39,37 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+def channels_keyboard(prefix: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=title, callback_data=f"{prefix}:{channel_id}")]
+        for channel_id, title in db.list_channels()
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ---------- Kanal bot admin qilib qo'shilganda/olib tashlanganda ----------
+
+@dp.my_chat_member()
+async def on_my_chat_member(update: ChatMemberUpdated):
+    if update.chat.type != "channel":
+        return
+
+    status = update.new_chat_member.status
+    if status == "administrator":
+        db.register_channel(update.chat.id, update.chat.title or str(update.chat.id))
+        text = (
+            f"✅ Yangi kanal ro'yxatga olindi: <b>{update.chat.title}</b>\n"
+            "Endi /setcaption orqali shu kanal uchun ham izoh belgilashingiz mumkin."
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, text)
+            except TelegramBadRequest:
+                pass
+    elif status in ("left", "kicked", "member"):
+        db.remove_channel(update.chat.id)
+
+
 # ---------- Admin buyruqlari (botning shaxsiy chatida) ----------
 
 @dp.message(Command("start"), F.chat.type == "private")
@@ -37,26 +78,66 @@ async def cmd_start(message: Message):
         await message.answer("Bu bot faqat administratorlar uchun.")
         return
     await message.answer(
-        "Salom! Men kanalga tashlangan video/rasmlarga avtomatik izoh qo'shib boraman.\n\n"
+        "Salom! Men kanal(lar)ga tashlangan video/rasmlarga avtomatik izoh qo'shib boraman.\n\n"
         "Buyruqlar:\n"
-        "/setcaption — avtomatik izohni belgilash (formatlash va emojilar bilan)\n"
-        "/caption — joriy izohni ko'rish\n"
-        "/clearcaption — avtomatik izoh qo'shishni to'xtatish\n\n"
-        "Eslatma: bot kanalda admin bo'lishi va unda "
-        "<b>\"Xabarlarni tahrirlash\" (Edit Messages)</b> huquqi yoqilgan bo'lishi shart."
+        "/setcaption — kanal tanlab, izoh belgilash (formatlash va emojilar bilan)\n"
+        "/caption — bir kanalning joriy izohini ko'rish\n"
+        "/clearcaption — bir kanal uchun avtomatik izohni to'xtatish\n"
+        "/channels — ro'yxatga olingan barcha kanallar\n\n"
+        "Yangi kanal qo'shish uchun botni o'sha kanalga admin qilib qo'shing va "
+        "<b>\"Xabarlarni tahrirlash\" (Edit Messages)</b> huquqini yoqing — bot "
+        "avtomatik ravishda ro'yxatga olinadi."
     )
+
+
+@dp.message(Command("channels"), F.chat.type == "private")
+async def cmd_channels(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    channels = db.list_channels()
+    if not channels:
+        await message.answer(
+            "Hozircha hech qanday kanal ro'yxatga olinmagan. Botni kanalga admin "
+            "qilib qo'shing (\"Xabarlarni tahrirlash\" huquqi bilan)."
+        )
+        return
+    lines = []
+    for channel_id, title in channels:
+        has_caption = "✅ izoh bor" if db.get_caption(channel_id) else "— izoh yo'q"
+        lines.append(f"• {title} ({has_caption})")
+    await message.answer("Ro'yxatga olingan kanallar:\n" + "\n".join(lines))
 
 
 @dp.message(Command("setcaption"), F.chat.type == "private")
-async def cmd_set_caption(message: Message, state: FSMContext):
+async def cmd_set_caption(message: Message):
     if not is_admin(message.from_user.id):
         return
-    await state.set_state(SetCaption.waiting_for_text)
+    if not db.list_channels():
+        await message.answer(
+            "Hozircha hech qanday kanal ro'yxatga olinmagan. Avval botni kanalga "
+            "admin qilib qo'shing (\"Xabarlarni tahrirlash\" huquqi bilan)."
+        )
+        return
     await message.answer(
-        "Endi izoh matnini yuboring — qalin/kursiv shrift, havolalar va premium "
-        "(custom) emojilar bo'lsa, ular xuddi shu ko'rinishda saqlanadi.\n\n"
-        "Bekor qilish uchun /cancel yozing."
+        "Qaysi kanal uchun izoh belgilaymiz?",
+        reply_markup=channels_keyboard("setcap"),
     )
+
+
+@dp.callback_query(F.data.startswith("setcap:"))
+async def cb_choose_setcaption(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    channel_id = int(callback.data.split(":", 1)[1])
+    title = db.get_channel_title(channel_id) or str(channel_id)
+    await state.set_state(SetCaption.waiting_for_text)
+    await state.update_data(channel_id=channel_id)
+    await callback.message.edit_text(
+        f"«{title}» uchun izoh matnini yuboring — qalin/kursiv shrift, havolalar "
+        f"va premium emojilar saqlanadi.\nBekor qilish uchun /cancel."
+    )
+    await callback.answer()
 
 
 @dp.message(Command("cancel"), F.chat.type == "private")
@@ -72,6 +153,13 @@ async def process_new_caption(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
 
+    data = await state.get_data()
+    channel_id = data.get("channel_id")
+    if not channel_id:
+        await state.clear()
+        await message.answer("Nimadir noto'g'ri ketdi, /setcaption bilan qayta boshlang.")
+        return
+
     plain_text = message.text or message.caption or ""
     formatted_caption = message.html_text or plain_text
 
@@ -85,9 +173,10 @@ async def process_new_caption(message: Message, state: FSMContext):
         )
         return
 
-    db.set_caption(formatted_caption)
+    db.set_caption(channel_id, formatted_caption)
     await state.clear()
-    await message.answer("✅ Izoh saqlandi. Namuna qanday ko'rinishda chiqishini pastda ko'rasiz 👇")
+    title = db.get_channel_title(channel_id) or str(channel_id)
+    await message.answer(f"✅ «{title}» uchun izoh saqlandi. Namuna qanday chiqishini pastda ko'rasiz 👇")
     await message.answer(formatted_caption)
 
 
@@ -95,29 +184,57 @@ async def process_new_caption(message: Message, state: FSMContext):
 async def cmd_get_caption(message: Message):
     if not is_admin(message.from_user.id):
         return
-    caption = db.get_caption()
+    if not db.list_channels():
+        await message.answer("Hozircha hech qanday kanal ro'yxatga olinmagan.")
+        return
+    await message.answer(
+        "Qaysi kanalning izohini ko'rmoqchisiz?",
+        reply_markup=channels_keyboard("getcap"),
+    )
+
+
+@dp.callback_query(F.data.startswith("getcap:"))
+async def cb_get_caption(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    channel_id = int(callback.data.split(":", 1)[1])
+    title = db.get_channel_title(channel_id) or str(channel_id)
+    caption = db.get_caption(channel_id)
+    await callback.answer()
     if caption:
-        await message.answer("Joriy izoh:")
-        await message.answer(caption)
+        await callback.message.answer(f"«{title}» uchun joriy izoh:")
+        await callback.message.answer(caption)
     else:
-        await message.answer("Hozircha izoh belgilanmagan. /setcaption orqali qo'shing.")
+        await callback.message.answer(f"«{title}» uchun izoh hali belgilanmagan.")
 
 
 @dp.message(Command("clearcaption"), F.chat.type == "private")
 async def cmd_clear_caption(message: Message):
     if not is_admin(message.from_user.id):
         return
-    db.clear_caption()
-    await message.answer("✅ Avtomatik izoh o'chirildi. Endi yangi postlarga hech narsa qo'shilmaydi.")
+    if not db.list_channels():
+        await message.answer("Hozircha hech qanday kanal ro'yxatga olinmagan.")
+        return
+    await message.answer(
+        "Qaysi kanalning avtomatik izohini o'chiramiz?",
+        reply_markup=channels_keyboard("clrcap"),
+    )
+
+
+@dp.callback_query(F.data.startswith("clrcap:"))
+async def cb_clear_caption(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    channel_id = int(callback.data.split(":", 1)[1])
+    title = db.get_channel_title(channel_id) or str(channel_id)
+    db.clear_caption(channel_id)
+    await callback.answer("O'chirildi")
+    await callback.message.edit_text(f"✅ «{title}» uchun avtomatik izoh o'chirildi.")
 
 
 # ---------- Kanal postlariga avtomatik izoh qo'shish ----------
-
-ALBUM_DEBOUNCE = 1.5  # soniya — albomning barcha elementlari kelishini kutamiz
-
-album_messages: dict[str, list[Message]] = {}
-album_tasks: dict[str, asyncio.Task] = {}
-
 
 async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_text: str) -> None:
     old = base_html.strip()
@@ -125,8 +242,6 @@ async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_t
     try:
         await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=new_caption)
     except TelegramBadRequest as e:
-        # Ehtimol umumiy uzunlik 1024 belgidan oshib ketgan yoki boshqa xatolik —
-        # shunda faqat o'zimizning izohimizni qo'yib ko'ramiz (eski izoh o'rniga)
         logging.error("Caption tahrirlashda xatolik (birinchi urinish): %s", e)
         try:
             await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=caption_text)
@@ -137,27 +252,18 @@ async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_t
 @dp.channel_post(~F.media_group_id, F.video | F.photo)
 async def handle_channel_post(message: Message):
     """Yakka (albom bo'lmagan) video/rasm postlari."""
-    if CHANNEL_ID and message.chat.id != CHANNEL_ID:
-        return  # bu bizning kanalimiz emas — tegilmaymiz
-
-    caption_text = db.get_caption()
+    caption_text = db.get_caption(message.chat.id)
     if not caption_text:
-        return  # izoh sozlanmagan — hech narsa qilmaymiz
-
-    # Postning o'zidagi izoh formatini (qalin, emoji va h.k.) saqlab qolamiz
+        return  # bu kanal uchun izoh sozlanmagan — hech narsa qilmaymiz
     await apply_caption(message.chat.id, message.message_id, message.html_text or "", caption_text)
 
 
 @dp.channel_post(F.media_group_id, F.video | F.photo)
 async def handle_album_item(message: Message):
     """Albom (bir vaqtda yuborilgan bir nechta video/rasm) postlari."""
-    if CHANNEL_ID and message.chat.id != CHANNEL_ID:
-        return
-
     group_id = message.media_group_id
     album_messages.setdefault(group_id, []).append(message)
 
-    # Yangi element kelsa, eski taymerni bekor qilib, yana kutamiz (debounce)
     if group_id in album_tasks:
         album_tasks[group_id].cancel()
     album_tasks[group_id] = asyncio.create_task(process_album(group_id))
@@ -170,18 +276,26 @@ async def process_album(group_id: str) -> None:
     if not messages:
         return
 
-    caption_text = db.get_caption()
+    first = min(messages, key=lambda m: m.message_id)
+    caption_text = db.get_caption(first.chat.id)
     if not caption_text:
         return
 
     # Telegram butun albom uchun faqat BITTA elementning (birinchisining)
     # izohini ko'rsatadi — shu sabab faqat o'shanga yozamiz
-    first = min(messages, key=lambda m: m.message_id)
     await apply_caption(first.chat.id, first.message_id, first.html_text or "", caption_text)
 
 
 async def main():
     db.init_db()
+    if LEGACY_CHANNEL_ID:
+        try:
+            chat = await bot.get_chat(LEGACY_CHANNEL_ID)
+            db.register_channel(chat.id, chat.title or str(chat.id))
+        except Exception as e:
+            logging.warning("Eski CHANNEL_ID uchun ma'lumot olinmadi: %s", e)
+        db.migrate_legacy_caption(LEGACY_CHANNEL_ID)
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 

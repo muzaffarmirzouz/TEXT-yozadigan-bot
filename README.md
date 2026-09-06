@@ -1,8 +1,10 @@
-# Kanal uchun avtomatik izoh (caption) boti
+# Ko'p-kanalli avtomatik izoh (caption) boti
 
-Kanalga video yoki rasm tashlanganda, bot avtomatik ravishda siz belgilagan matnni
-postning izohiga (caption) qo'shib qo'yadi. Agar postda odam qo'lda yozgan izoh
-bo'lsa, sizning matningiz uning **pastiga** qo'shib yoziladi (o'chirilmaydi).
+Botni istalgan sondagi kanalga admin qilib qo'shishingiz mumkin — har bir kanal
+uchun **alohida-alohida** izoh matni belgilanadi. Kanalga video yoki rasm
+tashlanganda, bot o'sha kanal uchun sozlangan matnni avtomatik ravishda
+postning izohiga (caption) qo'shib qo'yadi. Agar postda odam qo'lda yozgan
+izoh bo'lsa, sizning matningiz uning **pastiga** qo'shib yoziladi.
 
 ## 1. Bot yaratish
 
@@ -10,60 +12,62 @@ bo'lsa, sizning matningiz uning **pastiga** qo'shib yoziladi (o'chirilmaydi).
 2. `/newbot` buyrug'ini yuboring, nom va username bering.
 3. Sizga beriladigan **tokenni** saqlab qo'ying (`BOT_TOKEN`).
 
-## 2. Botni kanalga admin qilib qo'shish
-
-1. Kanalingizga o'ting → **Administratorlar** → **Admin qo'shish** → botni tanlang.
-2. Berilgan huquqlar orasida **"Xabarlarni tahrirlash" (Edit Messages)** ni
-   albatta yoqing — bot shu huquq orqali kanaldagi postlarni tahrirlaydi.
-
-## 3. Kanal ID'ni topish
-
-1. Kanaldagi istalgan postni [@userinfobot](https://t.me/userinfobot) ga forward qiling —
-   u sizga kanal ID'sini ko'rsatadi (odatda `-100` bilan boshlanadi, masalan `-1001234567890`).
-
-## 4. O'zingizning Telegram ID'ingizni topish
+## 2. O'zingizning Telegram ID'ingizni topish
 
 1. [@userinfobot](https://t.me/userinfobot) ga `/start` yozing — u sizning shaxsiy ID'ingizni beradi.
 2. Bir nechta admin bo'lsa, ID'larni vergul bilan ajrating: `111111111,222222222`.
 
-## 5. Mahalliy sinov (ixtiyoriy)
+## 3. Mahalliy sinov (ixtiyoriy)
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-# .env faylini o'z BOT_TOKEN, CHANNEL_ID, ADMIN_IDS qiymatlaringiz bilan to'ldiring
+# .env faylini o'z BOT_TOKEN va ADMIN_IDS qiymatlaringiz bilan to'ldiring
 python bot.py
 ```
 
-## 6. GitHub + Railway'ga joylash
+## 4. GitHub + Railway'ga joylash
 
 1. Ushbu papkani GitHub'dagi yangi repo'ga yuklang.
 2. Railway'da **New Project → Deploy from GitHub repo** orqali shu repo'ni ulang.
 3. Railway loyihasining **Variables** bo'limiga quyidagilarni qo'shing:
    - `BOT_TOKEN`
-   - `CHANNEL_ID`
    - `ADMIN_IDS`
+   - `CHANNEL_ID` — **faqat** avvalgi (bitta kanalli) versiyadan o'tayotgan bo'lsangiz,
+     eski kanalingiz ID'sini shu yerga qo'ying (bir martalik migratsiya uchun). Yangi
+     o'rnatish uchun bu shart emas.
 4. Railway `Procfile`ni o'zi tanib, botni `worker` sifatida ishga tushiradi.
 
-## 7. Foydalanish
+## 5. Kanal qo'shish
+
+1. Kanalingizga o'ting → **Administratorlar** → **Admin qo'shish** → botni tanlang.
+2. Berilgan huquqlar orasida **"Xabarlarni tahrirlash" (Edit Messages)** ni
+   albatta yoqing.
+3. Shu zahoti bot kanalni avtomatik ro'yxatga oladi va sizga (adminga) xabar
+   yuboradi. Buni istalgancha kanal uchun takrorlashingiz mumkin — kodga yoki
+   Railway sozlamalariga tegishning hojati yo'q.
+
+## 6. Foydalanish
 
 Botning shaxsiy chatiga o'ting (admin sifatida) va:
 
-- `/setcaption` — bot izoh matnini so'raydi; keyingi xabaringizni (qalin/kursiv
-  shrift, havolalar, premium/custom emojilar bilan) yuborsangiz, aynan o'sha
-  ko'rinishda saqlanadi. Bekor qilish uchun `/cancel`.
-- `/caption` — joriy izohni (formatlash bilan) ko'rsatadi
-- `/clearcaption` — avtomatik izoh qo'shishni to'xtatadi
+- `/setcaption` — kanal ro'yxatidan birini tanlaysiz, so'ng shu kanal uchun
+  izoh matnini yuborasiz (formatlash va emojilar bilan)
+- `/caption` — kanal tanlab, uning joriy izohini ko'rasiz
+- `/clearcaption` — kanal tanlab, avtomatik izoh qo'shishni to'xtatasiz
+- `/channels` — ro'yxatga olingan barcha kanallar va ularda izoh bor-yo'qligi
 
-Shundan keyin kanalga tashlangan **har bir yangi video yoki rasmga** bu matn
-avtomatik qo'shilib boradi. Eski (avvaldan turgan) postlarga ta'sir qilmaydi —
-faqat yangi tashlanganlariga ishlaydi.
+Shundan keyin har bir kanalga tashlangan **yangi video, rasm yoki albom**ga
+o'sha kanal uchun belgilangan matn avtomatik qo'shilib boradi. Har bir kanal
+mustaqil ishlaydi — birining izohi boshqasiga ta'sir qilmaydi.
 
 ## Eslatmalar
 
 - Caption uzunligi Telegram tomonidan 1024 belgigacha cheklangan; undan uzun
-  matn avtomatik qisqartiriladi.
-- Bot faqat `CHANNEL_ID` da ko'rsatilgan kanaldagi postlarga ishlov beradi.
-- Video yoki rasm o'rniga boshqa turdagi fayllar (hujjat, audio va h.k.) uchun
-  `bot.py` faylidagi `@dp.channel_post(F.video | F.photo)` qatoridagi filterga
-  kerakli turni qo'shsangiz bo'ladi (masalan `F.document`).
+  bo'lsa, tahrirlash muvaffaqiyatsiz tugasa, bot avtomatik faqat o'z izohini
+  qo'yishga urinadi (eski izoh o'rniga).
+- Premium (custom) emojilar Telegramning o'z cheklovi tufayli kanal
+  postlarida oddiy ko'rinishda chiqadi — bu bot emas, Telegram tomonidan
+  qo'yilgan cheklov.
+- Albom (bir vaqtda yuborilgan bir nechta video/rasm) uchun izoh faqat
+  birinchi elementga qo'shiladi — Telegram butun albom uchun shuni ko'rsatadi.
