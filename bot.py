@@ -3,7 +3,7 @@ import logging
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -55,6 +55,10 @@ async def on_my_chat_member(update: ChatMemberUpdated):
         return
 
     status = update.new_chat_member.status
+    logging.info(
+        "my_chat_member: chat_id=%s, title=%s, status=%s",
+        update.chat.id, update.chat.title, status,
+    )
     if status == "administrator":
         db.register_channel(update.chat.id, update.chat.title or str(update.chat.id))
         text = (
@@ -241,20 +245,30 @@ async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_t
     new_caption = f"{old}\n\n{caption_text}" if old else caption_text
     try:
         await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=new_caption)
-    except TelegramBadRequest as e:
-        logging.error("Caption tahrirlashda xatolik (birinchi urinish): %s", e)
+        logging.info("Caption yangilandi: chat_id=%s, message_id=%s", chat_id, message_id)
+    except TelegramAPIError as e:
+        logging.error(
+            "Caption tahrirlashda xatolik (birinchi urinish): chat_id=%s, message_id=%s, xato=%s",
+            chat_id, message_id, e,
+        )
         try:
             await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=caption_text)
-        except TelegramBadRequest as e2:
-            logging.error("Caption tahrirlashda xatolik (ikkinchi urinish): %s", e2)
+            logging.info("Caption (zaxira variant) yangilandi: chat_id=%s, message_id=%s", chat_id, message_id)
+        except TelegramAPIError as e2:
+            logging.error(
+                "Caption tahrirlashda xatolik (ikkinchi urinish): chat_id=%s, message_id=%s, xato=%s",
+                chat_id, message_id, e2,
+            )
 
 
 @dp.channel_post(~F.media_group_id, F.video | F.photo)
 async def handle_channel_post(message: Message):
     """Yakka (albom bo'lmagan) video/rasm postlari."""
+    logging.info("Yakka post keldi: chat_id=%s, title=%s", message.chat.id, message.chat.title)
     caption_text = db.get_caption(message.chat.id)
     if not caption_text:
-        return  # bu kanal uchun izoh sozlanmagan — hech narsa qilmaymiz
+        logging.info("chat_id=%s uchun izoh topilmadi — tegilmaymiz.", message.chat.id)
+        return
     await apply_caption(message.chat.id, message.message_id, message.html_text or "", caption_text)
 
 
@@ -277,8 +291,10 @@ async def process_album(group_id: str) -> None:
         return
 
     first = min(messages, key=lambda m: m.message_id)
+    logging.info("Albom keldi: chat_id=%s, title=%s, elementlar=%s", first.chat.id, first.chat.title, len(messages))
     caption_text = db.get_caption(first.chat.id)
     if not caption_text:
+        logging.info("chat_id=%s uchun izoh topilmadi — tegilmaymiz.", first.chat.id)
         return
 
     # Telegram butun albom uchun faqat BITTA elementning (birinchisining)
