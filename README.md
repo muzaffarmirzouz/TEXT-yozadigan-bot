@@ -6,6 +6,10 @@ tashlanganda, bot o'sha kanal uchun sozlangan matnni avtomatik ravishda
 postning izohiga (caption) qo'shib qo'yadi. Agar postda odam qo'lda yozgan
 izoh bo'lsa, sizning matningiz uning **pastiga** qo'shib yoziladi.
 
+Bundan tashqari, bot **lotin tilida yozilgan matnni avtomatik o'zbek
+kirillchasiga o'giradi** — bu ham admin qo'shgan izohga, ham postning o'z
+(boshqa odam yozgan) izohiga qo'llaniladi.
+
 ## 1. Bot yaratish
 
 1. Telegram'da [@BotFather](https://t.me/BotFather) ga yozing.
@@ -39,27 +43,19 @@ push'dan keyin o'chib ketadi**, agar Volume ulanmagan bo'lsa.
 4. Qayta deploy qiling.
 
 Shundan keyin ma'lumotlar (kanallar ro'yxati, har birining izohi) deploy'lar
-orasida saqlanib qoladi — endi push qilganingizda kanallarni qayta
-ro'yxatdan o'tkazish yoki izohlarni qayta yozish shart bo'lmaydi.
-
-**Eslatma:** agar Volume'ni hozir qo'shsangiz, oldingi ma'lumotlar
-(sozlagan kanallar/izohlar) allaqachon yo'qolgan bo'lishi mumkin — Volume
-ulangandan keyin ikkala kanalni ham bittа marta qayta ro'yxatdan o'tkazish
-kifoya: har birida botni admin huquqidan olib tashlab, qayta admin qilib
-qo'shsangiz (yoki "Xabarlarni tahrirlash" huquqini o'chirib-yoqsangiz), bot
-uni qayta avtomatik ro'yxatga oladi, so'ng `/setcaption` bilan matnlarni
-qayta kiritasiz — bundan keyin bu takrorlanmaydi.
+orasida saqlanib qoladi.
 
 ## 5. GitHub + Railway'ga joylash
 
-1. Ushbu papkani GitHub'dagi yangi repo'ga yuklang.
-2. Railway'da **New Project → Deploy from GitHub repo** orqali shu repo'ni ulang.
+1. Ushbu papkani GitHub'dagi repo'ga yuklang (eski fayllar o'rniga).
+2. Railway'da **New Project → Deploy from GitHub repo** orqali shu repo'ni ulang
+   (yoki mavjud loyihangizga push qiling — avtomatik qayta deploy bo'ladi).
 3. Railway loyihasining **Variables** bo'limiga quyidagilarni qo'shing:
    - `BOT_TOKEN`
    - `ADMIN_IDS`
+   - `DB_PATH` (4-bo'limga qarang)
    - `CHANNEL_ID` — **faqat** avvalgi (bitta kanalli) versiyadan o'tayotgan bo'lsangiz,
-     eski kanalingiz ID'sini shu yerga qo'ying (bir martalik migratsiya uchun). Yangi
-     o'rnatish uchun bu shart emas.
+     eski kanalingiz ID'sini shu yerga qo'ying (bir martalik migratsiya uchun).
 4. Railway `Procfile`ni o'zi tanib, botni `worker` sifatida ishga tushiradi.
 
 ## 6. Kanal qo'shish
@@ -68,22 +64,33 @@ qayta kiritasiz — bundan keyin bu takrorlanmaydi.
 2. Berilgan huquqlar orasida **"Xabarlarni tahrirlash" (Edit Messages)** ni
    albatta yoqing.
 3. Shu zahoti bot kanalni avtomatik ro'yxatga oladi va sizga (adminga) xabar
-   yuboradi. Buni istalgancha kanal uchun takrorlashingiz mumkin — kodga yoki
-   Railway sozlamalariga tegishning hojati yo'q.
+   yuboradi. Buni istalgancha kanal uchun takrorlashingiz mumkin.
 
 ## 7. Foydalanish
 
 Botning shaxsiy chatiga o'ting (admin sifatida) va:
 
 - `/setcaption` — kanal ro'yxatidan birini tanlaysiz, so'ng shu kanal uchun
-  izoh matnini yuborasiz (formatlash va emojilar bilan)
+  izoh matnini yuborasiz (formatlash va emojilar bilan). Lotin tilida yozsangiz,
+  saqlashdan oldin avtomatik kirillga o'giriladi.
 - `/caption` — kanal tanlab, uning joriy izohini ko'rasiz
 - `/clearcaption` — kanal tanlab, avtomatik izoh qo'shishni to'xtatasiz
 - `/channels` — ro'yxatga olingan barcha kanallar va ularda izoh bor-yo'qligi
 
 Shundan keyin har bir kanalga tashlangan **yangi video, rasm yoki albom**ga
-o'sha kanal uchun belgilangan matn avtomatik qo'shilib boradi. Har bir kanal
-mustaqil ishlaydi — birining izohi boshqasiga ta'sir qilmaydi.
+o'sha kanal uchun belgilangan matn avtomatik qo'shilib boradi.
+
+## Lotin → kirill o'girish qanday ishlaydi
+
+- `transliterate.py` faylida qoida-asoslangan (tashqi kutubxonasiz) o'girish
+  mexanizmi bor — shu sabab Railway'da qo'shimcha pip paketi kerak emas.
+- Standart o'zbekcha qoidalarga amal qiladi: `sh→ш`, `ch→ч`, `o'→ў`, `g'→ғ`,
+  `yo/yu/ya→ё/ю/я`, so'z boshidagi `e→э` va h.k.
+- **Tegilmaydigan narsalar:** URL'lar, `@mention`lar, `#hashtag`lar, telefon
+  raqamlari va HTML formatlash teglari (qalin, kursiv, havola) — bularning
+  ichidagi matn (masalan havola manzili) o'zgarishsiz qoladi.
+- Allaqachon kirill yozuvidagi matnga tegilmaydi — faqat lotin harflari (A-Z)
+  topilgan joylarda ishlaydi.
 
 ## Eslatmalar
 

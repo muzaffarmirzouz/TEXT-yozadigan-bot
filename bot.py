@@ -18,6 +18,7 @@ from aiogram.types import (
 
 import db
 from config import ADMIN_IDS, BOT_TOKEN, LEGACY_CHANNEL_ID
+from transliterate import translit_html
 
 logging.basicConfig(level=logging.INFO)
 
@@ -90,7 +91,9 @@ async def cmd_start(message: Message):
         "/channels — ro'yxatga olingan barcha kanallar\n\n"
         "Yangi kanal qo'shish uchun botni o'sha kanalga admin qilib qo'shing va "
         "<b>\"Xabarlarni tahrirlash\" (Edit Messages)</b> huquqini yoqing — bot "
-        "avtomatik ravishda ro'yxatga olinadi."
+        "avtomatik ravishda ro'yxatga olinadi.\n\n"
+        "📝 Lotin tilida yozilgan matn (izoh ham, postning o'z matni ham) "
+        "avtomatik ravishda o'zbek kirillchasiga o'giriladi."
     )
 
 
@@ -139,7 +142,8 @@ async def cb_choose_setcaption(callback: CallbackQuery, state: FSMContext):
     await state.update_data(channel_id=channel_id)
     await callback.message.edit_text(
         f"«{title}» uchun izoh matnini yuboring — qalin/kursiv shrift, havolalar "
-        f"va premium emojilar saqlanadi.\nBekor qilish uchun /cancel."
+        f"va premium emojilar saqlanadi. Lotin tilida yozsangiz ham, avtomatik "
+        f"kirillga o'giriladi.\nBekor qilish uchun /cancel."
     )
     await callback.answer()
 
@@ -176,6 +180,9 @@ async def process_new_caption(message: Message, state: FSMContext):
             f"Matn juda uzun ({len(plain_text)} belgi). Maksimum {MAX_CAPTION_LEN} belgi bo'lishi kerak."
         )
         return
+
+    # Lotin harflarni kirillga o'girib, shu holatda saqlaymiz
+    formatted_caption = translit_html(formatted_caption)
 
     db.set_caption(channel_id, formatted_caption)
     await state.clear()
@@ -241,7 +248,9 @@ async def cb_clear_caption(callback: CallbackQuery):
 # ---------- Kanal postlariga avtomatik izoh qo'shish ----------
 
 async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_text: str) -> None:
-    old = base_html.strip()
+    # Postning o'z matnidagi lotin harflarni ham kirillga o'giramiz
+    # (caption_text — admin sozlagan izoh — allaqachon kirillga o'girilgan holda saqlanadi)
+    old = translit_html(base_html).strip()
     new_caption = f"{old}\n\n{caption_text}" if old else caption_text
     try:
         await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=new_caption)
