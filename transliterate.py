@@ -14,8 +14,10 @@ pip paketi kerak emas va ishonchli ishlaydi. Quyidagilarga tegmaydi:
 import re
 
 # O'zbek tilida o' / g' uchun ishlatiladigan turli apostrof belgilari
-# (odamlar turli klaviaturada turlicha yozadi)
-_APOSTROPHES = "ʻʼ'`´ʹ"
+# (odamlar turli klaviaturada turlicha yozadi; iPhone/Android klaviaturasi
+# oddiy apostrofni ’ yoki ‘ kabi "aylanma" belgiga avtokorrektsiya qiladi —
+# shu variantlar ham albatta shu ro'yxatda bo'lishi kerak)
+_APOSTROPHES = "ʻʼ'`´ʹ’‘"
 
 _LATIN_TO_CYR_SINGLE = {
     "a": "а", "b": "б", "d": "д", "e": "е", "f": "ф", "g": "г", "h": "ҳ",
@@ -26,7 +28,7 @@ _LATIN_TO_CYR_SINGLE = {
 
 # Ikki harfli birikmalar (uzunroq mos kelishi birinchi tekshiriladi)
 _DIGRAPHS = [
-    ("yo", "ё"), ("yu", "ю"), ("ya", "я"),
+    ("yo", "ё"), ("yu", "ю"), ("ya", "я"), ("ye", "е"),
     ("sh", "ш"), ("ch", "ч"), ("ts", "ц"),
 ]
 
@@ -38,8 +40,13 @@ _SKIP_PATTERN = re.compile(
     r"\+?\d[\d\-\s()]{3,}\d)"
 )
 
-# Lotin so'z (harflar va ular orasidagi apostrof, masalan "bo'ylab")
-_WORD_PATTERN = re.compile(r"[A-Za-z]+(?:[" + re.escape(_APOSTROPHES) + r"][A-Za-z]+)*")
+# Lotin so'z (harflar va ular orasidagi apostrof, masalan "bo'ylab").
+# Oxirgi qismdagi yakka apostrof ham ushlanadi — masalan "bog'", "tog'",
+# yoki yolg'iz "G'" kabi so'zlar apostrof bilan tugasa ham to'g'ri ishlansin.
+_WORD_PATTERN = re.compile(
+    r"[A-Za-z]+(?:[" + re.escape(_APOSTROPHES) + r"][A-Za-z]+)*"
+    r"[" + re.escape(_APOSTROPHES) + r"]?"
+)
 
 _TAG_SPLIT = re.compile(r"(<[^>]+>)")
 
