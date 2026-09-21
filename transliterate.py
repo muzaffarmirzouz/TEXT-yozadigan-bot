@@ -1,17 +1,20 @@
 """
-O'zbek tilidagi lotin harflarini kirillga o'giradigan modul.
+O'zbek tilidagi matnni lotin <-> kirill orasida o'giradigan modul.
 
 Qoidaga asoslangan (tashqi kutubxonasiz), shu sabab Railway'da qo'shimcha
-pip paketi kerak emas va ishonchli ishlaydi. Quyidagilarga tegmaydi:
+pip paketi kerak emas va ishonchli ishlaydi. Ikkala yo'nalishda ham
+quyidagilarga tegilmaydi:
 - URL'lar (https://..., t.me/..., www...)
 - @mention'lar va #hashtag'lar
 - Telefon raqamlari va boshqa raqamlar
 - HTML teglari (<b>, <a href="...">, ...) va HTML entity'lar (&amp; va h.k.)
-- Allaqachon kirill yozuvidagi matn (chunki faqat lotin harflari — A-Z/a-z —
-  ushlanadi)
+- Maqsad tilida allaqachon yozilgan matn (masalan lotin->kirill yo'nalishida
+  allaqachon kirillcha bo'lgan qism, va aksincha)
 """
 
 import re
+
+# ============================== LOTIN -> KIRILL ==============================
 
 # O'zbek tilida o' / g' uchun ishlatiladigan turli apostrof belgilari
 # (odamlar turli klaviaturada turlicha yozadi; iPhone/Android klaviaturasi
@@ -27,35 +30,35 @@ _LATIN_TO_CYR_SINGLE = {
 }
 
 # Ikki harfli birikmalar (uzunroq mos kelishi birinchi tekshiriladi)
-_DIGRAPHS = [
+_LAT_DIGRAPHS = [
     ("yo", "ё"), ("yu", "ю"), ("ya", "я"), ("ye", "е"),
     ("sh", "ш"), ("ch", "ч"), ("ts", "ц"),
 ]
 
-# Texnik elementlar — bularga tegmaymiz
-_SKIP_PATTERN = re.compile(
-    r"(https?://\S+|t\.me/\S+|www\.\S+|"
-    r"@[A-Za-z0-9_]+|#[\w']+|"
-    r"&[a-zA-Z]+;|&#\d+;|"
-    r"\+?\d[\d\-\s()]{3,}\d)"
-)
-
 # Lotin so'z (harflar va ular orasidagi apostrof, masalan "bo'ylab").
 # Oxirgi qismdagi yakka apostrof ham ushlanadi — masalan "bog'", "tog'",
 # yoki yolg'iz "G'" kabi so'zlar apostrof bilan tugasa ham to'g'ri ishlansin.
-_WORD_PATTERN = re.compile(
+_LAT_WORD_PATTERN = re.compile(
     r"[A-Za-z]+(?:[" + re.escape(_APOSTROPHES) + r"][A-Za-z]+)*"
     r"[" + re.escape(_APOSTROPHES) + r"]?"
 )
 
-_TAG_SPLIT = re.compile(r"(<[^>]+>)")
+
+def _cased(source_char: str, replacement: str) -> str:
+    """Bitta harf manbaning katta/kichikligiga qarab moslashtiriladi."""
+    return replacement.upper() if source_char.isupper() else replacement
 
 
-def _cased(source_char: str, cyrillic: str) -> str:
-    return cyrillic.upper() if source_char.isupper() else cyrillic
+def _cased_multi(source_char: str, replacement: str) -> str:
+    """Ko'p harfli almashtirish — faqat birinchi harfi katta/kichik bo'ladi
+    (manba bitta harf, natija bir necha harf bo'lgani uchun to'liq katta
+    holatni saqlab bo'lmaydi — bu tabiiy cheklov)."""
+    if source_char.isupper():
+        return replacement[0].upper() + replacement[1:]
+    return replacement
 
 
-def _translit_word(word: str) -> str:
+def _latin_to_cyr_word(word: str) -> str:
     out = []
     i = 0
     n = len(word)
@@ -69,10 +72,10 @@ def _translit_word(word: str) -> str:
             i += 2
             continue
 
-        # sh, ch, ts, yo, yu, ya
+        # sh, ch, ts, yo, yu, ya, ye
         two = word[i:i + 2].lower()
         matched = False
-        for lat, cyr in _DIGRAPHS:
+        for lat, cyr in _LAT_DIGRAPHS:
             if two == lat:
                 out.append(_cased(c, cyr))
                 i += 2
@@ -105,36 +108,125 @@ def _translit_word(word: str) -> str:
     return "".join(out)
 
 
-def _translit_plain_text(text: str) -> str:
-    """Oddiy (HTML teglarisiz) matndagi lotin so'zlarni kirillga o'giradi."""
+# ============================== KIRILL -> LOTIN ==============================
+
+_CYR_TO_LAT_SINGLE = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z",
+    "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "x",
+    "э": "e", "ы": "i",
+}
+
+_CYR_TO_LAT_MULTI = {
+    "ц": "ts", "ч": "ch", "ш": "sh",
+    "ё": "yo", "ю": "yu", "я": "ya",
+    "ў": "o'", "қ": "q", "ғ": "g'", "ҳ": "h",
+}
+
+# ъ -> apostrof, ь -> tushirib qoldiriladi (standart o'zbek lotin
+# orfografiyasida yumshoq belgiga mos harf yo'q)
+_CYR_SPECIAL = {"ъ": "'", "ь": ""}
+
+# "е" harfi qaysi holatda "ye", qaysi holatda faqat "e" bo'lishini aniqlash
+# uchun undan oldingi unli harflar ro'yxati (so'z boshida ham "ye" bo'ladi)
+_CYR_VOWELS = set("аоуиўэяюёе")
+
+_CYR_WORD_PATTERN = re.compile(r"[Ѐ-ӿ]+")
+
+
+def _cyr_to_lat_word(word: str) -> str:
+    out = []
+    n = len(word)
+    for i, c in enumerate(word):
+        lower = c.lower()
+
+        if lower == "е":
+            prev = word[i - 1].lower() if i > 0 else None
+            if i == 0 or (prev is not None and prev in _CYR_VOWELS):
+                out.append(_cased_multi(c, "ye"))
+            else:
+                out.append(_cased(c, "e"))
+            continue
+
+        if lower in _CYR_TO_LAT_MULTI:
+            out.append(_cased_multi(c, _CYR_TO_LAT_MULTI[lower]))
+            continue
+
+        if lower in _CYR_SPECIAL:
+            out.append(_CYR_SPECIAL[lower])
+            continue
+
+        if lower in _CYR_TO_LAT_SINGLE:
+            out.append(_cased(c, _CYR_TO_LAT_SINGLE[lower]))
+            continue
+
+        out.append(c)
+
+    return "".join(out)
+
+
+# ============================== UMUMIY QISM ==============================
+
+# Texnik elementlar — bularga tegmaymiz (ikkala yo'nalishda ham)
+_SKIP_PATTERN = re.compile(
+    r"(https?://\S+|t\.me/\S+|www\.\S+|"
+    r"@[A-Za-z0-9_]+|#[\w']+|"
+    r"&[a-zA-Z]+;|&#\d+;|"
+    r"\+?\d[\d\-\s()]{3,}\d)"
+)
+
+_TAG_SPLIT = re.compile(r"(<[^>]+>)")
+
+
+def _apply_word_transform(text: str, word_pattern: "re.Pattern[str]", word_fn) -> str:
     if not text:
         return text
 
     def repl(match: "re.Match[str]") -> str:
-        return _translit_word(match.group(0))
+        return word_fn(match.group(0))
 
     parts = []
     last = 0
     for m in _SKIP_PATTERN.finditer(text):
         before = text[last:m.start()]
-        parts.append(_WORD_PATTERN.sub(repl, before))
+        parts.append(word_pattern.sub(repl, before))
         parts.append(m.group(0))  # texnik element — o'zgarishsiz
         last = m.end()
-    parts.append(_WORD_PATTERN.sub(repl, text[last:]))
+    parts.append(word_pattern.sub(repl, text[last:]))
     return "".join(parts)
 
 
-def translit_html(html: str) -> str:
-    """
-    HTML formatlangan matndagi (masalan aiogram'ning html_text natijasi)
-    lotin so'zlarni kirillga o'giradi, teglar va ularning atributlariga
-    (masalan href="...") tegmaydi.
-    """
+def _apply_html_transform(html: str, word_pattern: "re.Pattern[str]", word_fn) -> str:
     if not html:
         return html
     parts = _TAG_SPLIT.split(html)
     for i, part in enumerate(parts):
         if part.startswith("<") and part.endswith(">"):
             continue  # HTML tegi — o'zgarishsiz qoladi
-        parts[i] = _translit_plain_text(part)
+        parts[i] = _apply_word_transform(part, word_pattern, word_fn)
     return "".join(parts)
+
+
+def latin_to_cyrillic_html(html: str) -> str:
+    """Lotin harflarni kirillga o'giradi (HTML teglariga tegmaydi)."""
+    return _apply_html_transform(html, _LAT_WORD_PATTERN, _latin_to_cyr_word)
+
+
+def cyrillic_to_latin_html(html: str) -> str:
+    """Kirill harflarni lotinga o'giradi (HTML teglariga tegmaydi)."""
+    return _apply_html_transform(html, _CYR_WORD_PATTERN, _cyr_to_lat_word)
+
+
+# Rejimlar: bot.py shu kodlar orqali kanal sozlamasiga qarab tanlaydi
+TRANSLIT_MODES = {
+    "l2c": ("Lotin → Kirill", latin_to_cyrillic_html),
+    "c2l": ("Kirill → Lotin", cyrillic_to_latin_html),
+    "off": ("O'chirilgan", lambda html: html),
+}
+DEFAULT_TRANSLIT_MODE = "l2c"
+
+
+def transliterate(html: str, mode: str) -> str:
+    """Berilgan rejimga (l2c / c2l / off) qarab HTML matnni o'giradi."""
+    _, fn = TRANSLIT_MODES.get(mode, TRANSLIT_MODES[DEFAULT_TRANSLIT_MODE])
+    return fn(html)
