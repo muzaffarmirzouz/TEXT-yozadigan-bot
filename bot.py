@@ -203,10 +203,29 @@ async def cmd_start(message: Message):
 async def cmd_stats(message: Message):
     if message.from_user.id not in OPERATOR_IDS:
         return
-    await message.answer(
-        f"📊 Jami kanallar: {db.count_channels()}\n"
-        f"👥 Jami foydalanuvchilar (kanal egalari): {db.count_owners()}"
+
+    total_channels = db.count_channels()
+    with_caption = db.count_channels_with_caption()
+    by_mode = db.count_channels_by_mode()
+
+    mode_lines = "\n".join(
+        f"   {TRANSLIT_MODES[key][0]}: {by_mode.get(key, 0)}"
+        for key in TRANSLIT_MODES
     )
+
+    text = (
+        "📊 <b>Bot statistikasi</b>\n\n"
+        f"👥 Foydalanuvchilar (kanal egalari): {db.count_owners()}\n"
+        f"📢 Jami kanallar: {total_channels}\n"
+        f"   ✅ Izoh sozlangan: {with_caption}\n"
+        f"   — Izoh sozlanmagan: {total_channels - with_caption}\n\n"
+        f"🔤 O'girish rejimi bo'yicha:\n{mode_lines}\n\n"
+        f"🖼 Avtomatik qo'shilgan izohlar:\n"
+        f"   Bugun (so'nggi 24 soat): {db.count_captions_applied(since_hours=24)}\n"
+        f"   So'nggi 7 kun: {db.count_captions_applied(since_hours=24 * 7)}\n"
+        f"   Jami: {db.count_captions_applied()}"
+    )
+    await message.answer(text)
 
 
 @dp.message(Command("channels"), F.chat.type == "private")
@@ -456,6 +475,7 @@ async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_t
     try:
         await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=new_caption)
         logging.info("Caption yangilandi: chat_id=%s, message_id=%s", chat_id, message_id)
+        db.log_caption_applied(chat_id)
     except TelegramAPIError as e:
         logging.error(
             "Caption tahrirlashda xatolik (birinchi urinish): chat_id=%s, message_id=%s, xato=%s",
@@ -464,6 +484,7 @@ async def apply_caption(chat_id: int, message_id: int, base_html: str, caption_t
         try:
             await bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=caption_text)
             logging.info("Caption (zaxira variant) yangilandi: chat_id=%s, message_id=%s", chat_id, message_id)
+            db.log_caption_applied(chat_id)
         except TelegramAPIError as e2:
             logging.error(
                 "Caption tahrirlashda xatolik (ikkinchi urinish): chat_id=%s, message_id=%s, xato=%s",

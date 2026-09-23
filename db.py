@@ -1,6 +1,7 @@
 import os
 import sqlite3
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 
 # Railway'da bu Volume mount qilingan doimiy papkaga ko'rsatilishi kerak
 # (masalan /data/captions.db), aks holda har deploy'da ma'lumot o'chib ketadi.
@@ -41,6 +42,17 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        )
+        """
+    )
+    # Har bir muvaffaqiyatli avtomatik izoh qo'shilganda bitta yozuv —
+    # statistika (/stats) uchun.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS caption_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER,
+            ts TEXT
         )
         """
     )
@@ -175,6 +187,54 @@ def count_owners() -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT COUNT(DISTINCT owner_id) FROM channels WHERE owner_id IS NOT NULL")
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def count_channels_with_caption() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM captions WHERE caption IS NOT NULL AND caption != ''"
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def count_channels_by_mode() -> Dict[str, int]:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COALESCE(translit_mode, 'l2c'), COUNT(*) FROM channels GROUP BY 1"
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return {mode: count for mode, count in rows}
+
+
+def log_caption_applied(channel_id: int) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO caption_log (channel_id, ts) VALUES (?, ?)",
+        (channel_id, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def count_captions_applied(since_hours: Optional[int] = None) -> int:
+    """Jami (yoki so'nggi N soatda) muvaffaqiyatli qo'shilgan avtomatik
+    izohlar soni."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if since_hours is None:
+        cur.execute("SELECT COUNT(*) FROM caption_log")
+    else:
+        since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+        cur.execute("SELECT COUNT(*) FROM caption_log WHERE ts >= ?", (since,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else 0
